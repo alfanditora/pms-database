@@ -1,0 +1,83 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Department {
+  department_id Int      @id @default(autoincrement())
+  name          String
+  division      String
+  users         User[]
+}
+
+model User {
+  npk          String   @id
+  name         String
+  section      String
+  position     String
+  grade        String
+  departmentId Int
+  department   Department @relation(fields: [departmentId], references: [department_id])
+  ipps         Ipp[]
+}
+
+model Category {
+  category_id Int    @id @default(autoincrement())
+  name        String
+  routine     Int    // percentage 
+  non_routine Int    // percentage 
+  project     Int    // percentage 
+  ipps        Ipp[]
+} // so the total percentage must be 100
+
+model Ipp {
+  ipp_id     Int      @id @default(autoincrement())
+  year       Int
+  npk        String
+  user       User     @relation(fields: [npk], references: [npk])
+  categoryId Int
+  category   Category @relation(fields: [categoryId], references: [category_id])
+  activities Activity[]
+}
+
+model Activity {
+  activity_id     Int                   @id @default(autoincrement())
+  activity_category String
+  activity_name    String
+  kpi              String
+  weight           Int
+  target           String
+  deliverable      String
+  ippId            Int
+  ipp              Ipp @relation(fields: [ippId], references: [ipp_id])
+  achievements     ActivityAchievement[]
+}
+
+model ActivityAchievement {
+  achievement_id    Int        @id @default(autoincrement())
+  month             Int
+  status            String
+  achievement_value Int
+  activityId        Int
+  activity          Activity   @relation(fields: [activityId], references: [activity_id])
+  evidences         AchievementEvidence[]
+}
+
+model AchievementEvidence {
+  evidence_id   Int                  @id @default(autoincrement())
+  file_path     String
+  uploaded_at   DateTime @default(now())
+  achievementId Int
+  achievement   ActivityAchievement @relation(fields: [achievementId], references: [achievement_id])
+}
