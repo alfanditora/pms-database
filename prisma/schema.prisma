@@ -6,7 +6,7 @@
 
 generator client {
   provider = "prisma-client-js"
-  output   = "../generated/prisma"
+  output   = "../node_modules/.prisma/client"
 }
 
 datasource db {
@@ -24,9 +24,10 @@ model Department {
 model User {
   npk          String   @id
   name         String
+  password     String
   section      String
   position     String
-  grade        String
+  grade        Int
   departmentId Int
   department   Department @relation(fields: [departmentId], references: [department_id])
   ipps         Ipp[]
@@ -34,44 +35,49 @@ model User {
 
 model Category {
   category_id Int    @id @default(autoincrement())
-  name        String
-  routine     Int    // percentage 
-  non_routine Int    // percentage 
-  project     Int    // percentage 
+  name        String // previously was enum category_name { PROJECT_BASED, ROUTINE_BASED, MIDDLE }
+  routine     Float    // percentage 
+  non_routine Float    // percentage 
+  project     Float    // percentage 
   ipps        Ipp[]
 } // so the total percentage must be 100
 
 model Ipp {
-  ipp_id     Int      @id @default(autoincrement())
+  id         Int      @id @default(autoincrement())
+  ipp        String   @unique      
   year       Int
   npk        String
   user       User     @relation(fields: [npk], references: [npk])
   categoryId Int
   category   Category @relation(fields: [categoryId], references: [category_id])
+  uploaded_at DateTime @default(now())
+  approval approval_status @default(PENDING)
   activities Activity[]
 }
 
 model Activity {
-  activity_id     Int                   @id @default(autoincrement())
-  activity_category String
+  id               Int      @id @default(autoincrement())
+  activity         String   @unique 
+  activity_category activity_category_enum
   activity_name    String
   kpi              String
-  weight           Int
+  weight           Float
   target           String
   deliverable      String
-  ippId            Int
-  ipp              Ipp @relation(fields: [ippId], references: [ipp_id])
+  ippId            String
+  ipp              Ipp @relation(fields: [ippId], references: [ipp])
   achievements     ActivityAchievement[]
 }
 
 model ActivityAchievement {
   achievement_id    Int        @id @default(autoincrement())
   month             Int
-  status            String
+  status            status_enum
   achievement_value Int
-  activityId        Int
-  activity          Activity   @relation(fields: [activityId], references: [activity_id])
+  activityId        String
+  activity          Activity   @relation(fields: [activityId], references: [activity])
   evidences         AchievementEvidence[]
+  approval approval_status @default(PENDING)
 }
 
 model AchievementEvidence {
@@ -80,4 +86,21 @@ model AchievementEvidence {
   uploaded_at   DateTime @default(now())
   achievementId Int
   achievement   ActivityAchievement @relation(fields: [achievementId], references: [achievement_id])
+}
+
+enum approval_status {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum status_enum {
+  COUNT
+  NOT_COUNT
+}
+
+enum activity_category_enum {
+  ROUTINE
+  NON_ROUTINE
+  PROJECT
 }
