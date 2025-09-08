@@ -31,6 +31,7 @@ model User {
   departmentId Int
   department   Department @relation(fields: [departmentId], references: [department_id])
   ipps         Ipp[]
+  privillege   enum_privillege @default(USER)
 }
 
 model Category {
@@ -50,34 +51,44 @@ model Ipp {
   user       User     @relation(fields: [npk], references: [npk])
   categoryId Int
   category   Category @relation(fields: [categoryId], references: [category_id])
-  uploaded_at DateTime @default(now())
-  approval approval_status @default(PENDING)
+  submitAt   DateTime?
+  createAt   DateTime @default(now())
+  updateAt   DateTime @updatedAt
+  verify     verify_status @default(PENDING)
+  approval   approval_status @default(PENDING)
   activities Activity[]
 }
 
 model Activity {
-  id               Int      @id @default(autoincrement())
-  activity         String   @unique 
+  id                Int      @id @default(autoincrement())
+  activity          String
   activity_category activity_category_enum
-  activity_name    String
-  kpi              String
-  weight           Float
-  target           String
-  deliverable      String
-  ippId            String
-  ipp              Ipp @relation(fields: [ippId], references: [ipp])
-  achievements     ActivityAchievement[]
+  activity_name     String
+  kpi               String
+  weight            Float
+  target            String
+  deliverable       String
+  ippId             String
+  ipp               Ipp @relation(fields: [ippId], references: [ipp])
+  achievements      ActivityAchievement[]
+
+  @@unique([ippId, activity])
 }
 
 model ActivityAchievement {
   achievement_id    Int        @id @default(autoincrement())
   month             Int
-  status            status_enum
-  achievement_value Int
-  activityId        String
-  activity          Activity   @relation(fields: [activityId], references: [activity])
+  status            status_enum @default(NOT_COUNT)
+  achievement_value Float
+  weightxvalue      Float @default(0)
+  uploaded_at       DateTime @default(now())
+  activityId        Int
+  activity          Activity   @relation(fields: [activityId], references: [id])
   evidences         AchievementEvidence[]
-  approval approval_status @default(PENDING)
+  verify            verify_status @default(PENDING)
+  approval          approval_status @default(PENDING)
+
+  @@unique([activityId, month])
 }
 
 model AchievementEvidence {
@@ -103,4 +114,17 @@ enum activity_category_enum {
   ROUTINE
   NON_ROUTINE
   PROJECT
+}
+
+enum verify_status {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum enum_privillege {
+  ADMIN
+  HRD
+  PCDA
+  USER
 }
