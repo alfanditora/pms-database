@@ -1,13 +1,18 @@
 import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 
+const jwtSecret = process.env.JWT_SECRET;
+if (!jwtSecret) {
+  throw new Error('JWT_SECRET must be defined in your .env file');
+}
+
 export const authMiddleware = (req: Request, res: Response, next: NextFunction): void => {
   try {
     const authHeader = req.headers.authorization;
-    if (!authHeader) {
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
       res.status(401).json({
         status: 'error',
-        message: 'Authorization header is required'
+        message: 'Authorization header with Bearer token is required'
       });
       return;
     }
@@ -21,10 +26,8 @@ export const authMiddleware = (req: Request, res: Response, next: NextFunction):
       return;
     }
 
-    const jwtSecret = process.env.JWT_SECRET || 'your_jwt_secret_key';
-
     const decoded = jwt.verify(token, jwtSecret);
-
+    
     (req as any).user = decoded;
 
     next();
@@ -56,7 +59,7 @@ export const adminMiddleware = (req: Request, res: Response, next: NextFunction)
       return;
     }
     
-    if (user.role !== 'admin') {
+    if (user.privillege !== 'ADMIN') {
       res.status(403).json({
         status: 'error',
         message: 'Access denied. Admin only.'
@@ -84,10 +87,10 @@ export const operationMiddleware = (req: Request, res: Response, next: NextFunct
       return;
     }
 
-    if (user.role !== 'operation' && user.role !== 'admin') {
+    if (user.privillege !== 'OPERATION' && user.privillege !== 'ADMIN') {
       res.status(403).json({
         status: 'error',
-        message: 'Access denied. Operation only.'
+        message: 'Access denied. Operation or Admin only.'
       });
       return;
     }

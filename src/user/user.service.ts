@@ -71,7 +71,7 @@ export class UserService {
         return prisma.user.delete({ where: { npk } });
     }
 
-    async updatePrivillege(npk: string, privillege: 'ADMIN' | 'HRD' | 'PCDA' | 'USER') {
+    async updatePrivillege(npk: string, privillege: 'ADMIN' | 'OPERATION' | 'USER') {
         const user = await prisma.user.findUnique({ where: { npk } });
         if (!user) {
             throw new Error('User not found');

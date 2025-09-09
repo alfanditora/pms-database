@@ -3,7 +3,10 @@ import bcrypt from 'bcrypt';
 import dotenv from 'dotenv';
 
 dotenv.config();
-const JWT_SECRET = process.env.JWT_SECRET
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+    throw new Error("JWT_SECRET is not defined in your .env file");
+}
 
 import { PrismaClient } from '@prisma/client';
 
@@ -19,7 +22,7 @@ export class AuthService {
         if (!valid) {
             throw new Error('Invalid password');
         }
-    const token = jwt.sign({ npk: user.npk }, JWT_SECRET as string, { expiresIn: '1d' });
+        const token = jwt.sign({ npk: user.npk, privillege: user.privillege }, JWT_SECRET as string, { expiresIn: '1d' });
         return { token };
     }
 }
