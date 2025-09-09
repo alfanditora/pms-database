@@ -23,6 +23,6 @@ export class AuthService {
             throw new Error('Invalid password');
         }
         const token = jwt.sign({ npk: user.npk, privillege: user.privillege }, JWT_SECRET as string, { expiresIn: '1d' });
-        return { token };
+        return { user, token };
     }
 }

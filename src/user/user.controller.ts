@@ -79,7 +79,7 @@ export class UserController {
         }
         try {
             await userService.deleteUser(npk);
-            res.status(204).send();
+            res.status(204).send("User deletion success!");
         } catch (error: any) {
             console.error(error);
             res.status(400).json({ error: error?.message || "Failed to delete user" });
@@ -94,7 +94,7 @@ export class UserController {
             return res.status(400).json({ error: "NPK and privillege are required" });
         }
 
-        if (!['ADMIN', 'HRD', 'PCDA', 'USER'].includes(privillege)) {
+        if (!['ADMIN', 'OPERATION', 'USER'].includes(privillege)) {
             return res.status(400).json({ error: "Invalid privillege value" });
         }
 
