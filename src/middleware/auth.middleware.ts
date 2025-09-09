@@ -73,7 +73,7 @@ export const adminMiddleware = (req: Request, res: Response, next: NextFunction)
   }
 };
 
-export const hrdpdcaMiddleware = (req: Request, res: Response, next: NextFunction): void => {
+export const operationMiddleware = (req: Request, res: Response, next: NextFunction): void => {
   try {
     const user = (req as any).user;
     if (!user) {
@@ -84,10 +84,10 @@ export const hrdpdcaMiddleware = (req: Request, res: Response, next: NextFunctio
       return;
     }
 
-    if (user.role !== 'hrd' && user.role !== 'pcda') {
+    if (user.role !== 'operation' && user.role !== 'admin') {
       res.status(403).json({
         status: 'error',
-        message: 'Access denied. HRD or PCDA only.'
+        message: 'Access denied. Operation only.'
       });
       return;
     }

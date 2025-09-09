@@ -79,7 +79,7 @@ model ActivityAchievement {
   achievement_id    Int        @id @default(autoincrement())
   month             Int
   status            status_enum @default(NOT_COUNT)
-  achievement_value Float
+  achievement_value Float @default(0)
   weightxvalue      Float @default(0)
   uploaded_at       DateTime @default(now())
   activityId        Int
@@ -124,7 +124,6 @@ enum verify_status {
 
 enum enum_privillege {
   ADMIN
-  HRD
-  PCDA
+  OPERATION
   USER
 }
