@@ -5,6 +5,8 @@ import dotenv from "dotenv";
 import authRoutes from "./src/auth/auth.routes.js";
 import userRoutes from "./src/user/user.routes.js";
 import ippRoutes from "./src/ipp/ipp.routes.js";
+import deptRoutes from "./src/department/department.routes.js";
+import categoryRoutes from "./src/category/category.routes.js";
 
 dotenv.config();
 
@@ -18,7 +20,8 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/ipp', ippRoutes); 
-
+app.use('/api/department', deptRoutes);
+app.use('/api/category', categoryRoutes);
 
 
 app.get('/api/', (req, res) => {
