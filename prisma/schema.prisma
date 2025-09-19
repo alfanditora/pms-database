@@ -15,20 +15,20 @@ datasource db {
 }
 
 model Department {
-  department_id Int      @id @default(autoincrement())
+  department_id Int    @id @default(autoincrement())
   name          String
   users         User[]
 }
 
 model User {
-  npk          String   @id
+  npk          String          @id
   name         String
   password     String
   section      String
   position     String
   grade        Int
   departmentId Int
-  department   Department @relation(fields: [departmentId], references: [department_id])
+  department   Department      @relation(fields: [departmentId], references: [department_id])
   ipps         Ipp[]
   privillege   enum_privillege @default(USER)
 }
@@ -36,30 +36,41 @@ model User {
 model Category {
   category_id Int    @id @default(autoincrement())
   name        String // previously was enum category_name { PROJECT_BASED, ROUTINE_BASED, MIDDLE }
-  routine     Float    // percentage 
-  non_routine Float    // percentage 
-  project     Float    // percentage 
+  routine     Float // percentage 
+  non_routine Float // percentage 
+  project     Float // percentage 
   ipps        Ipp[]
-} // so the total percentage must be 100
+}
+
+// so the total percentage must be 100
 
 model Ipp {
-  id         Int      @id @default(autoincrement())
-  ipp        String   @unique      
-  year       Int
-  npk        String
-  user       User     @relation(fields: [npk], references: [npk])
-  categoryId Int
-  category   Category @relation(fields: [categoryId], references: [category_id])
-  submitAt   DateTime?
-  createAt   DateTime @default(now())
-  updateAt   DateTime @updatedAt
-  verify     verify_status @default(PENDING)
-  approval   approval_status @default(PENDING)
-  activities Activity[]
+  id              Int               @id @default(autoincrement())
+  ipp             String            @unique
+  year            Int
+  npk             String
+  user            User              @relation(fields: [npk], references: [npk])
+  categoryId      Int
+  category        Category          @relation(fields: [categoryId], references: [category_id])
+  submitAt        DateTime?
+  createAt        DateTime          @default(now())
+  updateAt        DateTime          @updatedAt
+  verify          verify_status     @default(PENDING)
+  approval        approval_status   @default(PENDING)
+  activities      Activity[]
+  MonthlyApproval MonthlyApproval[]
+}
+
+model MonthlyApproval {
+  id    Int    @id @default(autoincrement())
+  ippId String
+  ipp   Ipp    @relation(fields: [ippId], references: [ipp])
+  month Int
+  approval approval_status @default(PENDING)
 }
 
 model Activity {
-  id                Int      @id @default(autoincrement())
+  id                Int                    @id @default(autoincrement())
   activity          String
   activity_category activity_category_enum
   activity_name     String
@@ -68,35 +79,42 @@ model Activity {
   target            String
   deliverable       String
   ippId             String
-  ipp               Ipp @relation(fields: [ippId], references: [ipp])
+  ipp               Ipp                    @relation(fields: [ippId], references: [ipp])
   achievements      ActivityAchievement[]
 
   @@unique([ippId, activity])
 }
 
 model ActivityAchievement {
-  achievement_id    Int        @id @default(autoincrement())
+  achievement_id    Int                   @id @default(autoincrement())
   month             Int
-  status            status_enum @default(NOT_COUNT)
-  achievement_value Float @default(0)
-  weightxvalue      Float @default(0)
-  uploaded_at       DateTime @default(now())
+  status            status_enum           @default(NOT_COUNT)
+  achievement_value Float                 @default(0)
+  weightxvalue      Float                 @default(0)
+  uploaded_at       DateTime              @default(now())
   activityId        Int
-  activity          Activity   @relation(fields: [activityId], references: [id])
+  activity          Activity              @relation(fields: [activityId], references: [id])
   evidences         AchievementEvidence[]
-  verify            verify_status @default(PENDING)
-  approval          approval_status @default(PENDING)
+  verify            verify_status         @default(PENDING)
 
   @@unique([activityId, month])
 }
 
 model AchievementEvidence {
-  evidence_id   Int                  @id @default(autoincrement())
+  evidence_id   Int                 @id @default(autoincrement())
   file_path     String
-  uploaded_at   DateTime @default(now())
+  uploaded_at   DateTime            @default(now())
   achievementId Int
   achievement   ActivityAchievement @relation(fields: [achievementId], references: [achievement_id])
 }
+
+// model calenderEvent {
+//   id           Int               @id @default(autoincrement())
+//   event_name   String
+//   start_date   DateTime
+//   end_data     DateTime
+//   event_status enum_event_status @default(ACTIVE)
+// }
 
 enum approval_status {
   PENDING
@@ -126,3 +144,8 @@ enum enum_privillege {
   OPERATION
   USER
 }
+
+// enum enum_event_status {
+//   ACTIVE
+//   NON_ACTIVE
+// }

@@ -1,4 +1,6 @@
 import { PrismaClient, type Category, type approval_status, type verify_status, type status_enum } from "@prisma/client";
+import { supabaseAdmin } from "../lib/supabaseAdmin.js";
+import type { Express } from "express";
 
 const prisma = new PrismaClient();
 
@@ -34,10 +36,21 @@ type ActivityAchievementUpdateInput = {
     achievement_value?: number;
 }
 
-type EvidenceInput = {
-    file_path: string;
+type ExecutiveSummary = {
+    summary: {
+        year: number;
+        month: number;
+        total_activity: number;
+        count_activity: number;
+        achieve: number;
+        not_achieve: number;
+        count_weight: number;
+        achieve_weight: number;
+        monthly_activity_achievement_count: number;
+        monthly_approval: approval_status;
+    }[];
+    total_average: number;
 }
-
 
 export class IppService {
 
@@ -64,13 +77,13 @@ export class IppService {
         }
 
         if (newWeightsByCategory.ROUTINE > category.routine) {
-            throw new Error(`Total weight for ROUTINE activities exceeds the limit of ${category.routine}%.`);
+            throw new Error(`Total weight for ROUTINE activities exceeds the limit of ${category.routine * 100}%.`);
         }
         if (newWeightsByCategory.NON_ROUTINE > category.non_routine) {
-            throw new Error(`Total weight for NON_ROUTINE activities exceeds the limit of ${category.non_routine}%.`);
+            throw new Error(`Total weight for NON_ROUTINE activities exceeds the limit of ${category.non_routine * 100}%.`);
         }
         if (newWeightsByCategory.PROJECT > category.project) {
-            throw new Error(`Total weight for PROJECT activities exceeds the limit of ${category.project}%.`);
+            throw new Error(`Total weight for PROJECT activities exceeds the limit of ${category.project * 100}%.`);
         }
     }
 
@@ -171,8 +184,12 @@ export class IppService {
         if (await prisma.ipp.findUnique({ where: { ipp: data.ipp } })) {
             throw new Error('IPP already exists');
         }
-        await prisma.user.findUniqueOrThrow({ where: { npk: data.npk } });
-        await prisma.category.findUniqueOrThrow({ where: { category_id: data.categoryId } });
+        if (!await prisma.user.findUnique({ where: { npk: data.npk } })) {
+            throw new Error('User not found');
+        }
+        if (!await prisma.category.findUnique({ where: { category_id: data.categoryId } })) {
+            throw new Error('Category not found');
+        }
         return prisma.ipp.create({ data });
     }
 
@@ -221,17 +238,80 @@ export class IppService {
                 if (existingIpp.activities.length === 0) {
                     throw new Error('Cannot approve an IPP with no activities.');
                 }
+                // create achievements for each activity for 12 months
                 const achievementsToCreate = existingIpp.activities.flatMap(activity =>
                     Array.from({ length: 12 }, (_, i) => ({ activityId: activity.id, month: i + 1 }))
                 );
                 if (achievementsToCreate.length > 0) {
                     await tx.activityAchievement.createMany({ data: achievementsToCreate, skipDuplicates: true });
                 }
+
+                // create monthly approval for each ipp for 12 months
+                const monthlyApprovalToCreate = Array.from({ length: 12 }, (_, i) => ({ ippId: existingIpp.ipp, month: i + 1 }));
+                if (monthlyApprovalToCreate.length > 0) {
+                    await tx.monthlyApproval.createMany({ data: monthlyApprovalToCreate, skipDuplicates: true });
+                }
+
                 return tx.ipp.update({ where: { ipp }, data: { approval: 'APPROVED' } });
             });
         } else {
             return prisma.ipp.update({ where: { ipp }, data: { approval: approval_status } });
         }
+    }
+
+    // --- MONTHLY ACHIEVEMENT APPROVAL SERVICES ---
+
+    async findAllMonthlyAchievementApproval(ipp: string) {
+        await prisma.ipp.findUniqueOrThrow({ where: { ipp } });
+        return prisma.monthlyApproval.findMany({ where: { ippId: ipp } });
+    }
+
+    async findMonthlyAchievementById(id: number) {
+        return prisma.monthlyApproval.findUnique({ where: { id } });
+    }
+
+    async monthlyAchievementApproval(id: number, approvalStatus: approval_status) {
+        const monthlyApproval = await prisma.monthlyApproval.findUnique({
+            where: { id },
+        });
+
+        if (!monthlyApproval) {
+            throw new Error("ID is invalid. Monthly approval record not found.");
+        }
+
+        const ippWithActivities = await prisma.ipp.findUnique({
+            where: { ipp: monthlyApproval.ippId },
+            include: {
+                activities: {
+                    include: {
+                        achievements: {
+                            where: {
+                                month: monthlyApproval.month,
+                            },
+                        },
+                    },
+                },
+            },
+        });
+
+        if (!ippWithActivities) {
+            throw new Error("IPP not found for this monthly approval.");
+        }
+
+        const allAchievements = ippWithActivities.activities.flatMap(activity => activity.achievements);
+
+        const allVerified = allAchievements.every(
+            (achievement) => achievement.verify === 'VERIFIED'
+        );
+
+        if (!allVerified) {
+            throw new Error("Some achievements are not yet verified. Cannot approve.");
+        }
+
+        return prisma.monthlyApproval.update({
+            where: { id },
+            data: { approval: approvalStatus },
+        });
     }
 
     // --- ACTIVITY SERVICES ---
@@ -256,10 +336,57 @@ export class IppService {
                 where: { ippId_activity: { ippId: ipp, activity } },
                 include: { ipp: { include: { category: true } } }
             });
-            if (existingActivity.ipp.submitAt) throw new Error('Cannot update activity in a submitted IPP.');
 
-            // (Your detailed weight validation logic can be kept here)
-            // ...
+            if (existingActivity.ipp.submitAt) {
+                throw new Error('Cannot update activity in a submitted IPP.');
+            }
+
+            if (updateData.activity && updateData.activity !== activity) {
+                const duplicate = await tx.activity.findUnique({
+                    where: { ippId_activity: { ippId: ipp, activity: updateData.activity } }
+                });
+                if (duplicate) {
+                    throw new Error(`Activity with name "${updateData.activity}" already exists in this IPP.`);
+                }
+            }
+
+            const needsWeightValidation = updateData.weight !== undefined || updateData.activity_category !== undefined;
+
+            if (needsWeightValidation) {
+                const newWeight = updateData.weight ?? existingActivity.weight;
+                const newCategory = updateData.activity_category ?? existingActivity.activity_category;
+
+                if (newWeight < 0 || newWeight > 100) {
+                    throw new Error(`Weight for activity "${updateData.activity || activity}" must be between 0 and 100.`);
+                }
+
+                const categoryLimits = existingActivity.ipp.category;
+                let targetCategoryLimit: number;
+                switch (newCategory) {
+                    case 'ROUTINE': targetCategoryLimit = categoryLimits.routine; break;
+                    case 'NON_ROUTINE': targetCategoryLimit = categoryLimits.non_routine; break;
+                    case 'PROJECT': targetCategoryLimit = categoryLimits.project; break;
+                    default: throw new Error("Invalid activity category specified.");
+                }
+
+                const aggregation = await tx.activity.aggregate({
+                    _sum: { weight: true },
+                    where: { ippId: ipp, activity_category: newCategory }
+                });
+                const currentWeightInTargetCategory = aggregation._sum.weight || 0;
+
+                let projectedWeight: number;
+
+                if (newCategory === existingActivity.activity_category) {
+                    projectedWeight = (currentWeightInTargetCategory - existingActivity.weight) + newWeight;
+                } else {
+                    projectedWeight = currentWeightInTargetCategory + newWeight;
+                }
+
+                if (projectedWeight > targetCategoryLimit) {
+                    throw new Error(`Updating this activity exceeds the weight limit of ${targetCategoryLimit}% for the '${newCategory}' category. Projected weight would be ${projectedWeight}%.`);
+                }
+            }
 
             return tx.activity.update({
                 where: { id: existingActivity.id },
@@ -290,7 +417,7 @@ export class IppService {
     async updateActivityAchievement(ipp: string, activity_name: string, month: number, data: ActivityAchievementUpdateInput) {
         const achievement = await this._findAchievement(ipp, activity_name, month);
         const activity = await prisma.activity.findUniqueOrThrow({ where: { id: achievement.activityId } });
-        
+
         const achievement_value = data.achievement_value ?? achievement.achievement_value;
         const weightxvalue = (activity.weight * achievement_value) / 100;
 
@@ -308,14 +435,6 @@ export class IppService {
         });
     }
 
-    async achievementApproval(ipp: string, activity_name: string, month: number, status: approval_status) {
-        const achievement = await this._findAchievement(ipp, activity_name, month);
-        return prisma.activityAchievement.update({
-            where: { achievement_id: achievement.achievement_id },
-            data: { approval: status }
-        });
-    }
-
     // --- EVIDENCE SERVICES ---
 
     async findAchievementEvidences(ipp: string, activity_name: string, month: number) {
@@ -323,26 +442,164 @@ export class IppService {
         return prisma.achievementEvidence.findMany({ where: { achievementId: achievement.achievement_id } });
     }
 
-    async createAchievementEvidence(ipp: string, activity_name: string, month: number, data: EvidenceInput) {
+    async createAchievementEvidence(
+        ipp: string,
+        activity_name: string,
+        month: number,
+        file: Express.Multer.File
+    ) {
         const achievement = await this._findAchievement(ipp, activity_name, month);
+
+        const filePath = `evidences/${achievement.achievement_id}/${Date.now()}-${file.originalname}`;
+
+        const { error } = await supabaseAdmin.storage
+            .from("evidences")
+            .upload(filePath, file.buffer, {
+                contentType: file.mimetype,
+                upsert: false,
+            });
+
+        if (error) throw new Error(`Upload gagal: ${error.message}`);
+
+        const { data } = supabaseAdmin.storage.from("evidences").getPublicUrl(filePath);
+
         return prisma.achievementEvidence.create({
             data: {
-                ...data,
-                achievementId: achievement.achievement_id
-            }
+                file_path: data.publicUrl,
+                achievementId: achievement.achievement_id,
+            },
         });
     }
 
-    async updateAchievementEvidence(evidence_id: number, data: Partial<EvidenceInput>) {
-        await prisma.achievementEvidence.findUniqueOrThrow({ where: { evidence_id } });
+    async updateAchievementEvidence(evidence_id: number, file?: Express.Multer.File) {
+        const existing = await prisma.achievementEvidence.findUniqueOrThrow({
+            where: { evidence_id },
+        });
+
+        let newUrl = existing.file_path;
+
+        if (file) {
+            const oldKey = existing.file_path.split("/").slice(-2).join("/");
+            await supabaseAdmin.storage.from("evidences").remove([oldKey]);
+
+            const filePath = `evidences/${existing.achievementId}/${Date.now()}-${file.originalname}`;
+
+            const { error } = await supabaseAdmin.storage
+                .from("evidences")
+                .upload(filePath, file.buffer, {
+                    contentType: file.mimetype,
+                    upsert: false,
+                });
+
+            if (error) throw new Error(`Upload gagal: ${error.message}`);
+
+            const { data } = supabaseAdmin.storage.from("evidences").getPublicUrl(filePath);
+
+            newUrl = data.publicUrl;
+        }
+
         return prisma.achievementEvidence.update({
             where: { evidence_id },
-            data
+            data: { file_path: newUrl },
         });
     }
 
     async deleteAchievementEvidence(evidence_id: number) {
-        await prisma.achievementEvidence.findUniqueOrThrow({ where: { evidence_id } });
+        const existing = await prisma.achievementEvidence.findUniqueOrThrow({
+            where: { evidence_id },
+        });
+
+        const fileKey = existing.file_path.split("/").slice(-2).join("/");
+        await supabaseAdmin.storage.from("evidences").remove([fileKey]);
+
         return prisma.achievementEvidence.delete({ where: { evidence_id } });
+    }
+
+    // --- EXECUTIVE SUMMARY ---
+
+    async executiveSummary(ippString: string): Promise<ExecutiveSummary> {
+        const existingIpp = await prisma.ipp.findUnique({
+            where: { ipp: ippString },
+            include: {
+                activities: {
+                    include: {
+                        achievements: true,
+                    },
+                },
+                MonthlyApproval: true,
+            },
+        });
+
+        if (!existingIpp) {
+            throw new Error('IPP not found');
+        }
+
+        const summary = [];
+        let totalAchievedWeights = 0;
+        let totalWeights = 0;
+
+        const year = existingIpp.year;
+
+        const totalActivities = existingIpp.activities.length;
+        const totalWeight = existingIpp.activities.reduce((sum, activity) => sum + activity.weight, 0);
+
+        for (let month = 1; month <= 12; month++) {
+            const monthlyAchievements = existingIpp.activities.flatMap(activity =>
+                activity.achievements.filter(ach => ach.month === month)
+            );
+
+            const countActivity = monthlyAchievements.length;
+            let achieveCount = 0;
+            let notAchieveCount = 0;
+            let achieveWeight = 0;
+
+            // Get the monthly approval status for the current month
+            const monthlyApproval = existingIpp.MonthlyApproval.find(
+                (approval) => approval.month === month
+            )?.approval || 'PENDING';
+
+            for (const achievement of monthlyAchievements) {
+                // Find the parent activity to get the target and weight
+                const parentActivity = existingIpp.activities.find(
+                    (act) => act.id === achievement.activityId
+                );
+
+                if (parentActivity) {
+                    // Assuming target is a number; adjust if it's a string like "100%"
+                    const target = parseFloat(parentActivity.target);
+
+                    if (achievement.achievement_value >= target) {
+                        achieveCount++;
+                        achieveWeight += parentActivity.weight;
+                    } else {
+                        notAchieveCount++;
+                    }
+                }
+            }
+
+            summary.push({
+                year,
+                month,
+                total_activity: totalActivities,
+                count_activity: countActivity,
+                achieve: achieveCount,
+                not_achieve: notAchieveCount,
+                count_weight: totalWeight,
+                achieve_weight: achieveWeight,
+                monthly_activity_achievement_count: countActivity,
+                monthly_approval: monthlyApproval,
+            });
+
+            totalAchievedWeights += achieveWeight;
+            totalWeights += totalWeight;
+        }
+
+        // Calculate the total average
+        const totalAverage = totalWeights > 0 ? (totalAchievedWeights / totalWeights) * 100 : 0;
+
+        return {
+            summary,
+            total_average: parseFloat(totalAverage.toFixed(2)),
+        };
     }
 }

@@ -55,7 +55,7 @@ export class IppController {
             next(error);
         }
     }
-    
+
     async createIpp(req: Request, res: Response, next: NextFunction) {
         try {
             // Membedakan antara createIpp biasa dan with activities
@@ -96,7 +96,7 @@ export class IppController {
             next(error);
         }
     }
-    
+
     async submitIpp(req: Request, res: Response, next: NextFunction) {
         try {
             const { ipp } = req.params;
@@ -151,6 +151,52 @@ export class IppController {
         }
     }
 
+    // --- MONTHLY ACHIEVEMENT APPROVAL SERVICES ---
+
+    async findAllMonthlyAchievement(req: Request, res: Response, next: NextFunction) {
+        try {
+            const { ipp } = req.params;
+            if (!ipp) {
+                return res.status(400).json({ message: 'IPP parameter is required.' });
+            }
+            const monthlyApproval = await ippService.findAllMonthlyAchievementApproval(ipp);
+            res.status(200).json(monthlyApproval);
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async findMonthlyAchievementById(req: Request, res: Response, next: NextFunction) {
+        try {
+            const { paramsid } = req.params;
+            if (!paramsid) {
+                return res.status(400).json({ message: 'ID parameter is required.' });
+            }
+            const id = parseInt(paramsid);
+            const monthlyApproval = await ippService.findMonthlyAchievementById(id);
+            res.status(200).json(monthlyApproval);
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async monthlyAchievementApproval(req: Request, res: Response, next: NextFunction) {
+        try {
+            const { paramsid } = req.params;
+            const approval_status = req.body;
+            if (!paramsid) {
+                return res.status(400).json({ message: 'ID parameter is required.' });
+            }
+            const id = parseInt(paramsid);
+            if (!approval_status) {
+                return res.status(400).json({ message: 'Status parameter is required' });
+            }
+            const monthlyApproval = await ippService.monthlyAchievementApproval(id, approval_status);
+            res.status(200).json(monthlyApproval);
+        } catch (error) {
+            next(error);
+        }
+    }
 
     // --- ACTIVITY CONTROLLERS ---
 
@@ -272,41 +318,13 @@ export class IppController {
         }
     }
 
-    async achievementApproval(req: Request, res: Response, next: NextFunction) {
-        try {
-            const { ipp, activity, month } = req.params;
-            if (!ipp) {
-                return res.status(400).json({ message: 'IPP parameter is required.' });
-            }
-            if (!activity) {
-                return res.status(400).json({ message: 'Activity parameter is required.' });
-            }
-            if (!month) {
-                return res.status(400).json({ message: 'Month parameter is required.' });
-            }
-            const monthNumber = parseInt(month, 10);
-            const { status } = req.body as { status: approval_status };
-            const approvedAchievement = await ippService.achievementApproval(ipp, activity, monthNumber, status);
-            res.status(200).json(approvedAchievement);
-        } catch (error) {
-            next(error);
-        }
-    }
-
-
     // --- EVIDENCE CONTROLLERS ---
 
     async findAchievementEvidences(req: Request, res: Response, next: NextFunction) {
         try {
             const { ipp, activity, month } = req.params;
-            if (!ipp) {
-                return res.status(400).json({ message: 'IPP parameter is required.' });
-            }
-            if (!activity) {
-                return res.status(400).json({ message: 'Activity parameter is required.' });
-            }
-            if (!month) {
-                return res.status(400).json({ message: 'Month parameter is required.' });
+            if (!ipp || !activity || !month) {
+                return res.status(400).json({ message: "IPP, activity, and month are required." });
             }
             const monthNumber = parseInt(month, 10);
             const evidences = await ippService.findAchievementEvidences(ipp, activity, monthNumber);
@@ -319,17 +337,22 @@ export class IppController {
     async createAchievementEvidence(req: Request, res: Response, next: NextFunction) {
         try {
             const { ipp, activity, month } = req.params;
-            if (!ipp) {
-                return res.status(400).json({ message: 'IPP parameter is required.' });
+            if (!ipp || !activity || !month) {
+                return res.status(400).json({ message: "IPP, activity, and month are required." });
             }
-            if (!activity) {
-                return res.status(400).json({ message: 'Activity parameter is required.' });
+            if (!req.file) {
+                return res.status(400).json({ message: "File is required." });
             }
-            if (!month) {
-                return res.status(400).json({ message: 'Month parameter is required.' });
-            }
+
             const monthNumber = parseInt(month, 10);
-            const newEvidence = await ippService.createAchievementEvidence(ipp, activity, monthNumber, req.body);
+
+            const newEvidence = await ippService.createAchievementEvidence(
+                ipp,
+                activity,
+                monthNumber,
+                req.file
+            );
+
             res.status(201).json(newEvidence);
         } catch (error) {
             next(error);
@@ -340,10 +363,16 @@ export class IppController {
         try {
             const { id } = req.params;
             if (!id) {
-                return res.status(400).json({ message: 'Evidence ID parameter is required.' });
+                return res.status(400).json({ message: "Evidence ID is required." });
             }
+
             const evidenceId = parseInt(id, 10);
-            const updatedEvidence = await ippService.updateAchievementEvidence(evidenceId, req.body);
+
+            const updatedEvidence = await ippService.updateAchievementEvidence(
+                evidenceId,
+                req.file
+            );
+
             res.status(200).json(updatedEvidence);
         } catch (error) {
             next(error);
@@ -354,11 +383,27 @@ export class IppController {
         try {
             const { id } = req.params;
             if (!id) {
-                return res.status(400).json({ message: 'Evidence ID parameter is required.' });
+                return res.status(400).json({ message: "Evidence ID is required." });
             }
+
             const evidenceId = parseInt(id, 10);
             await ippService.deleteAchievementEvidence(evidenceId);
-            res.status(204).send(); // No Content
+            res.status(204).send();
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    // --- EXECUTIVE SUMMARY ---
+
+    async executiveSummary(req: Request, res: Response, next: NextFunction) {
+        try {
+            const { ipp } = req.params;
+            if (!ipp) {
+                return res.status(400).json({ message: "IPP ID is required." });
+            }
+            const executiveSummary = await ippService.executiveSummary(ipp);
+            res.status(200).json(executiveSummary);
         } catch (error) {
             next(error);
         }
