@@ -158,10 +158,15 @@ export class IppService {
 
     async findActiveIppByNpk(npk: string) {
         await prisma.user.findUniqueOrThrow({ where: { npk } });
-        const currentYear = new Date().getFullYear();
-        return prisma.ipp.findFirst({ where: { npk, year: currentYear } });
+        return prisma.ipp.findFirst({
+            where: {
+                npk: npk,
+                submitAt: {
+                    not: null,
+                },
+            },
+        });
     }
-
     async createIppwithActvities(data: IppWithActivitiesInput) {
         return prisma.$transaction(async (tx) => {
             if (await tx.ipp.findUnique({ where: { ipp: data.ipp } })) {
@@ -322,6 +327,10 @@ export class IppService {
     }
 
     async createActivity(ipp: string, data: ActivityInput) {
+        if (!data.activity || typeof data.activity !== 'string' || data.activity.trim() === '') {
+            throw new Error('The "Activity" ID cannot be empty.');
+        }
+
         return prisma.$transaction(async (tx) => {
             const existingIpp = await tx.ipp.findUniqueOrThrow({ where: { ipp }, include: { category: true } });
             if (existingIpp.submitAt) throw new Error('Cannot add activity to a submitted IPP.');
