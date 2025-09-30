@@ -16,8 +16,13 @@ const app = express();
 const PORT = process.env.PORT || 4000;
 
 
+const allowedOrigins = [
+  "https://pms-frontend-weld.vercel.app",
+  "http://localhost:3000",
+];
+
 app.use(cors({
-  origin: "http://localhost:3000",
+  origin: allowedOrigins,
   credentials: true,
 }));
 
