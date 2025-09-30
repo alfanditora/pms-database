@@ -37,6 +37,11 @@ type ActivityAchievementUpdateInput = {
 }
 
 type ExecutiveSummary = {
+    ippId: string;
+    npk: string;
+    username: string;
+    department: string;
+    category: string;
     summary: {
         year: number;
         month: number;
@@ -121,17 +126,17 @@ export class IppService {
 
     // --- PRIVATE FINDER HELPER ---
 
-    private async _findAchievement(ipp: string, activity_name: string, month: number) {
-        const activity = await prisma.activity.findUnique({
-            where: { ippId_activity: { ippId: ipp, activity: activity_name } },
+    private async _findAchievement(ipp: string, activity: string, month: number) {
+        const Existingactivity = await prisma.activity.findUnique({
+            where: { ippId_activity: { ippId: ipp, activity: activity } },
         });
 
-        if (!activity) {
-            throw new Error(`Activity "${activity_name}" not found in IPP "${ipp}".`);
+        if (!Existingactivity) {
+            throw new Error(`Activity "${activity}" not found in IPP "${ipp}".`);
         }
 
         const achievement = await prisma.activityAchievement.findUnique({
-            where: { activityId_month: { activityId: activity.id, month } },
+            where: { activityId_month: { activityId: Existingactivity.id, month } },
         });
 
         if (!achievement) {
@@ -148,7 +153,16 @@ export class IppService {
     }
 
     async findAllIpps() {
-        return prisma.ipp.findMany();
+        const ipps = await prisma.ipp.findMany({
+            include: {
+                user: {
+                    include: {
+                        department: true
+                    }
+                }
+            }
+        });
+        return ipps;
     }
 
     async findAllIppsByNpk(npk: string) {
@@ -158,7 +172,7 @@ export class IppService {
 
     async findActiveIppByNpk(npk: string) {
         await prisma.user.findUniqueOrThrow({ where: { npk } });
-        return prisma.ipp.findFirst({
+        return prisma.ipp.findMany({
             where: {
                 npk: npk,
                 submitAt: {
@@ -167,6 +181,26 @@ export class IppService {
             },
         });
     }
+
+    async findApprovedIppByNpk(npk: string) {
+        await prisma.user.findUniqueOrThrow({ where: { npk } });
+        return prisma.ipp.findMany({
+            where: {
+                npk: npk,
+                approval: "APPROVED",
+                year: new Date().getFullYear()
+            }
+        })
+    }
+
+    async findActiveIpp() {
+        return prisma.ipp.findMany({ where: { submitAt: { not: null, }, }, });
+    }
+
+    async findApprovedIpp() {
+        return prisma.ipp.findMany({ where: { approval: "APPROVED" } });
+    }
+
     async createIppwithActvities(data: IppWithActivitiesInput) {
         return prisma.$transaction(async (tx) => {
             if (await tx.ipp.findUnique({ where: { ipp: data.ipp } })) {
@@ -214,9 +248,50 @@ export class IppService {
     }
 
     async submitIpp(ipp: string) {
-        const existingIpp = await prisma.ipp.findUniqueOrThrow({ where: { ipp } });
-        if (existingIpp.submitAt) throw new Error('IPP has already been submitted.');
-        return prisma.ipp.update({ where: { ipp }, data: { submitAt: new Date() } });
+        const existingIpp = await prisma.ipp.findUniqueOrThrow({
+            where: { ipp },
+            include: {
+                activities: true,
+                category: true,
+            },
+        });
+
+        if (existingIpp.submitAt) {
+            throw new Error('IPP has already been submitted.');
+        }
+
+        const weightsByCategory = {
+            ROUTINE: 0,
+            NON_ROUTINE: 0,
+            PROJECT: 0,
+        };
+
+        for (const activity of existingIpp.activities) {
+            weightsByCategory[activity.activity_category] += activity.weight;
+        }
+
+        const { category } = existingIpp;
+
+        if (weightsByCategory.ROUTINE !== category.routine) {
+            throw new Error(
+                `Total weight for ROUTINE activities must be exactly ${category.routine}%. Current total is ${weightsByCategory.ROUTINE}%.`
+            );
+        }
+        if (weightsByCategory.NON_ROUTINE !== category.non_routine) {
+            throw new Error(
+                `Total weight for NON_ROUTINE activities must be exactly ${category.non_routine}%. Current total is ${weightsByCategory.NON_ROUTINE}%.`
+            );
+        }
+        if (weightsByCategory.PROJECT !== category.project) {
+            throw new Error(
+                `Total weight for PROJECT activities must be exactly ${category.project}%. Current total is ${weightsByCategory.PROJECT}%.`
+            );
+        }
+
+        return prisma.ipp.update({
+            where: { ipp },
+            data: { submitAt: new Date() }
+        });
     }
 
     async unsubmitIpp(ipp: string) {
@@ -230,6 +305,9 @@ export class IppService {
 
     async IppVerification(ipp: string, verify_status: verify_status) {
         const existingIpp = await prisma.ipp.findUniqueOrThrow({ where: { ipp } });
+        if (!existingIpp.submitAt) {
+            throw new Error(`IPP is not submitted yet`);
+        }
         if (existingIpp.verify === verify_status) throw new Error(`IPP already "${verify_status}"`);
         return prisma.ipp.update({ where: { ipp }, data: { verify: verify_status } });
     }
@@ -237,7 +315,9 @@ export class IppService {
     async ippApproval(ipp: string, approval_status: approval_status) {
         const existingIpp = await prisma.ipp.findUniqueOrThrow({ where: { ipp }, include: { activities: true } });
         if (existingIpp.approval === approval_status) throw new Error(`IPP is already in "${approval_status}" state.`);
-
+        if (!existingIpp.submitAt) {
+            throw new Error(`IPP is not submitted yet`);
+        }
         if (approval_status === 'APPROVED') {
             return prisma.$transaction(async (tx) => {
                 if (existingIpp.activities.length === 0) {
@@ -301,16 +381,6 @@ export class IppService {
 
         if (!ippWithActivities) {
             throw new Error("IPP not found for this monthly approval.");
-        }
-
-        const allAchievements = ippWithActivities.activities.flatMap(activity => activity.achievements);
-
-        const allVerified = allAchievements.every(
-            (achievement) => achievement.verify === 'VERIFIED'
-        );
-
-        if (!allVerified) {
-            throw new Error("Some achievements are not yet verified. Cannot approve.");
         }
 
         return prisma.monthlyApproval.update({
@@ -436,14 +506,6 @@ export class IppService {
         });
     }
 
-    async achievementVerification(ipp: string, activity_name: string, month: number, status: verify_status) {
-        const achievement = await this._findAchievement(ipp, activity_name, month);
-        return prisma.activityAchievement.update({
-            where: { achievement_id: achievement.achievement_id },
-            data: { verify: status }
-        });
-    }
-
     // --- EVIDENCE SERVICES ---
 
     async findAchievementEvidences(ipp: string, activity_name: string, month: number) {
@@ -459,7 +521,8 @@ export class IppService {
     ) {
         const achievement = await this._findAchievement(ipp, activity_name, month);
 
-        const filePath = `evidences/${achievement.achievement_id}/${Date.now()}-${file.originalname}`;
+        // FIX: Remove the extra "evidences/" prefix - just use the achievement ID and filename
+        const filePath = `${achievement.achievement_id}/${Date.now()}-${file.originalname}`;
 
         const { error } = await supabaseAdmin.storage
             .from("evidences")
@@ -470,14 +533,18 @@ export class IppService {
 
         if (error) throw new Error(`Upload gagal: ${error.message}`);
 
-        const { data } = supabaseAdmin.storage.from("evidences").getPublicUrl(filePath);
-
-        return prisma.achievementEvidence.create({
+        const evidence = await prisma.achievementEvidence.create({
             data: {
-                file_path: data.publicUrl,
+                file_path: filePath, // Store only the relative path
                 achievementId: achievement.achievement_id,
             },
         });
+
+        // Return with full public URL
+        return {
+            ...evidence,
+            file_path: this.getPublicUrl(evidence.file_path)
+        };
     }
 
     async updateAchievementEvidence(evidence_id: number, file?: Express.Multer.File) {
@@ -485,13 +552,18 @@ export class IppService {
             where: { evidence_id },
         });
 
-        let newUrl = existing.file_path;
+        let newFilePath = existing.file_path;
 
         if (file) {
-            const oldKey = existing.file_path.split("/").slice(-2).join("/");
+            // When deleting, we need to use the stored path (which should be clean)
+            const oldKey = existing.file_path.startsWith('evidences/')
+                ? existing.file_path.substring(10) // Remove "evidences/" prefix if exists
+                : existing.file_path;
+
             await supabaseAdmin.storage.from("evidences").remove([oldKey]);
 
-            const filePath = `evidences/${existing.achievementId}/${Date.now()}-${file.originalname}`;
+            // Create new clean path
+            const filePath = `${existing.achievementId}/${Date.now()}-${file.originalname}`;
 
             const { error } = await supabaseAdmin.storage
                 .from("evidences")
@@ -502,15 +574,18 @@ export class IppService {
 
             if (error) throw new Error(`Upload gagal: ${error.message}`);
 
-            const { data } = supabaseAdmin.storage.from("evidences").getPublicUrl(filePath);
-
-            newUrl = data.publicUrl;
+            newFilePath = filePath;
         }
 
-        return prisma.achievementEvidence.update({
+        const updated = await prisma.achievementEvidence.update({
             where: { evidence_id },
-            data: { file_path: newUrl },
+            data: { file_path: newFilePath },
         });
+
+        return {
+            ...updated,
+            file_path: this.getPublicUrl(updated.file_path)
+        };
     }
 
     async deleteAchievementEvidence(evidence_id: number) {
@@ -518,10 +593,59 @@ export class IppService {
             where: { evidence_id },
         });
 
-        const fileKey = existing.file_path.split("/").slice(-2).join("/");
+        // Clean the path before deletion
+        const fileKey = existing.file_path.startsWith('evidences/')
+            ? existing.file_path.substring(10) // Remove "evidences/" prefix if exists
+            : existing.file_path;
+
         await supabaseAdmin.storage.from("evidences").remove([fileKey]);
 
         return prisma.achievementEvidence.delete({ where: { evidence_id } });
+    }
+
+    async getAchievementEvidences(ipp: string, activity_name: string, month: number) {
+        const achievement = await this._findAchievement(ipp, activity_name, month);
+
+        const evidences = await prisma.achievementEvidence.findMany({
+            where: { achievementId: achievement.achievement_id }
+        });
+
+        // Transform evidences to include full public URLs
+        return evidences.map(evidence => ({
+            ...evidence,
+            file_path: this.getPublicUrl(evidence.file_path)
+        }));
+    }
+
+    // UPDATED: Use getPublicUrl instead of createSignedUrl
+    private getPublicUrl(filePath: string): string {
+        // Clean the path - remove "evidences/" prefix if it exists
+        const cleanPath = filePath.startsWith('evidences/')
+            ? filePath.substring(10)
+            : filePath;
+
+        // Get public URL (no token needed if bucket is public)
+        const { data } = supabaseAdmin.storage
+            .from('evidences')
+            .getPublicUrl(cleanPath);
+
+        return data.publicUrl;
+    }
+
+    // ALTERNATIVE: If you need signed URLs with tokens, use this instead:
+    private async getSignedUrl(filePath: string, expiresIn: number = 3600): Promise<string> {
+        // Clean the path - remove "evidences/" prefix if it exists  
+        const cleanPath = filePath.startsWith('evidences/')
+            ? filePath.substring(10)
+            : filePath;
+
+        const { data, error } = await supabaseAdmin.storage
+            .from('evidences')
+            .createSignedUrl(cleanPath, expiresIn); // expires in 1 hour by default
+
+        if (error) throw new Error(`Failed to create signed URL: ${error.message}`);
+
+        return data.signedUrl;
     }
 
     // --- EXECUTIVE SUMMARY ---
@@ -541,6 +665,21 @@ export class IppService {
 
         if (!existingIpp) {
             throw new Error('IPP not found');
+        }
+
+        const category = await prisma.category.findUnique({ where: { category_id: existingIpp.categoryId }});
+        let categoryname = "";
+        if (category) {
+            categoryname = category.name;
+        }
+
+        const user = await prisma.user.findUnique({ where: { npk: existingIpp.npk } });
+        let username = "";
+        let departmentname = "";
+        if (user) {
+            const department = await prisma.department.findUnique({ where: { department_id: user.departmentId } });
+            username = user.name;
+            departmentname = department ? department.name : "";
         }
 
         const summary = [];
@@ -607,6 +746,11 @@ export class IppService {
         const totalAverage = totalWeights > 0 ? (totalAchievedWeights / totalWeights) * 100 : 0;
 
         return {
+            ippId: existingIpp.ipp,
+            npk: existingIpp.npk,
+            username: username,
+            department: departmentname,
+            category: categoryname,
             summary,
             total_average: parseFloat(totalAverage.toFixed(2)),
         };

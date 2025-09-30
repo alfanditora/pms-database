@@ -13,6 +13,7 @@ export class UserController {
         try {
             const user = await userService.findUserByNpk(npk);
             res.json(user);
+            console.log(user);
         } catch (error: any) {
             console.error(error);
             res.status(404).json({ error: error?.message || "User not found" });

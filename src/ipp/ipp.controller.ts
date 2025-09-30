@@ -51,6 +51,43 @@ export class IppController {
             }
             const ippRecord = await ippService.findActiveIppByNpk(npk);
             res.status(200).json(ippRecord);
+            console.log("Fetch success");
+            console.log(ippRecord);
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async findApprovedIppByNpk(req: Request, res: Response, next: NextFunction) {
+        try {
+            const { npk } = req.params;
+            if (!npk) {
+                return res.status(400).json({ message: 'IPP parameter is required.' });
+            }
+            const ippRecord = await ippService.findApprovedIppByNpk(npk);
+            res.status(200).json(ippRecord);
+            console.log("Fetch success");
+            console.log(ippRecord);
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async findActiveIpp(req: Request, res: Response, next: NextFunction) {
+        try {
+            const ipps = await ippService.findActiveIpp();
+            res.status(200).json(ipps);
+            console.log("Fetch success");
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async findApprovedIpp(req: Request, res: Response, next: NextFunction) {
+        try {
+            const ipps = await ippService.findApprovedIpp();
+            res.status(200).json(ipps);
+            console.log("Fetch success");
         } catch (error) {
             next(error);
         }
@@ -161,6 +198,7 @@ export class IppController {
             }
             const monthlyApproval = await ippService.findAllMonthlyAchievementApproval(ipp);
             res.status(200).json(monthlyApproval);
+            console.log(monthlyApproval);
         } catch (error) {
             next(error);
         }
@@ -182,17 +220,26 @@ export class IppController {
 
     async monthlyAchievementApproval(req: Request, res: Response, next: NextFunction) {
         try {
-            const { paramsid } = req.params;
-            const approval_status = req.body;
-            if (!paramsid) {
+            const { id } = req.params;  // Fixed the destructuring
+            const { approval } = req.body;  // Extract approval from body
+
+            if (!id) {
                 return res.status(400).json({ message: 'ID parameter is required.' });
             }
-            const id = parseInt(paramsid);
-            if (!approval_status) {
-                return res.status(400).json({ message: 'Status parameter is required' });
+
+            const monthlyApprovalId = parseInt(id);
+
+            if (!approval) {
+                return res.status(400).json({ message: 'Approval status is required' });
             }
-            const monthlyApproval = await ippService.monthlyAchievementApproval(id, approval_status);
+
+            const monthlyApproval = await ippService.monthlyAchievementApproval(
+                monthlyApprovalId,
+                approval  // Pass just the approval string, not the whole body
+            );
+
             res.status(200).json(monthlyApproval);
+            console.log(monthlyApproval);
         } catch (error) {
             next(error);
         }
@@ -272,6 +319,8 @@ export class IppController {
             }
             const achievements = await ippService.findActivityAchievements(ipp, activity);
             res.status(200).json(achievements);
+            console.log("Fetch success!");
+            console.log(achievements);
         } catch (error) {
             next(error);
         }
@@ -297,37 +346,23 @@ export class IppController {
         }
     }
 
-    async achievementVerification(req: Request, res: Response, next: NextFunction) {
-        try {
-            const { ipp, activity, month } = req.params;
-            if (!ipp) {
-                return res.status(400).json({ message: 'IPP parameter is required.' });
-            }
-            if (!activity) {
-                return res.status(400).json({ message: 'Activity parameter is required.' });
-            }
-            if (!month) {
-                return res.status(400).json({ message: 'Month parameter is required.' });
-            }
-            const monthNumber = parseInt(month, 10);
-            const { status } = req.body as { status: verify_status };
-            const verifiedAchievement = await ippService.achievementVerification(ipp, activity, monthNumber, status);
-            res.status(200).json(verifiedAchievement);
-        } catch (error) {
-            next(error);
-        }
-    }
-
     // --- EVIDENCE CONTROLLERS ---
 
-    async findAchievementEvidences(req: Request, res: Response, next: NextFunction) {
+    async getAchievementEvidences(req: Request, res: Response, next: NextFunction) {
         try {
             const { ipp, activity, month } = req.params;
             if (!ipp || !activity || !month) {
                 return res.status(400).json({ message: "IPP, activity, and month are required." });
             }
+
             const monthNumber = parseInt(month, 10);
-            const evidences = await ippService.findAchievementEvidences(ipp, activity, monthNumber);
+
+            const evidences = await ippService.getAchievementEvidences(
+                ipp,
+                activity,
+                monthNumber
+            );
+
             res.status(200).json(evidences);
         } catch (error) {
             next(error);
@@ -404,6 +439,7 @@ export class IppController {
             }
             const executiveSummary = await ippService.executiveSummary(ipp);
             res.status(200).json(executiveSummary);
+            console.log(executiveSummary);
         } catch (error) {
             next(error);
         }

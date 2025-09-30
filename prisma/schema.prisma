@@ -95,7 +95,6 @@ model ActivityAchievement {
   activityId        Int
   activity          Activity              @relation(fields: [activityId], references: [id])
   evidences         AchievementEvidence[]
-  verify            verify_status         @default(PENDING)
 
   @@unique([activityId, month])
 }
@@ -108,13 +107,6 @@ model AchievementEvidence {
   achievement   ActivityAchievement @relation(fields: [achievementId], references: [achievement_id])
 }
 
-// model calenderEvent {
-//   id           Int               @id @default(autoincrement())
-//   event_name   String
-//   start_date   DateTime
-//   end_data     DateTime
-//   event_status enum_event_status @default(ACTIVE)
-// }
 
 enum approval_status {
   PENDING
@@ -144,8 +136,3 @@ enum enum_privillege {
   OPERATION
   USER
 }
-
-// enum enum_event_status {
-//   ACTIVE
-//   NON_ACTIVE
-// }

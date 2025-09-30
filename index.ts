@@ -8,6 +8,8 @@ import ippRoutes from "./src/ipp/ipp.routes.js";
 import deptRoutes from "./src/department/department.routes.js";
 import categoryRoutes from "./src/category/category.routes.js";
 
+import { errorHandler } from "./src/middleware/error.middleware.js";
+
 dotenv.config();
 
 const app = express();
@@ -31,6 +33,8 @@ app.use('/api/category', categoryRoutes);
 app.get('/api/', (req, res) => {
   res.send('Welcome to the Performance Monitoring System API');
 });
+
+app.use(errorHandler);
 
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
